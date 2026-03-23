@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Wallet as WalletIcon,
   Plus,
@@ -12,95 +12,46 @@ import {
   Eye,
   EyeOff,
   ChevronRight,
+  RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
+import { useAuth } from '../lib/AuthContext';
+import { useWallet } from '../lib/WalletContext';
+import { onUserTransactions, LRTransaction } from '../lib/firestore';
 
-interface Transaction {
-  id: string;
-  type: 'sent' | 'received' | 'donation' | 'reward';
-  description: string;
-  amount: number;
-  date: string;
-  status: 'completed' | 'pending';
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
-const transactions: Transaction[] = [
-  {
-    id: 't1',
-    type: 'donation',
-    description: 'Donation to Sabor de Casa',
-    amount: -50,
-    date: 'Mar 22, 2026',
-    status: 'completed',
-  },
-  {
-    id: 't2',
-    type: 'reward',
-    description: 'Referral Reward',
-    amount: 25,
-    date: 'Mar 20, 2026',
-    status: 'completed',
-  },
-  {
-    id: 't3',
-    type: 'donation',
-    description: 'Donation to NexoTech Labs',
-    amount: -100,
-    date: 'Mar 18, 2026',
-    status: 'completed',
-  },
-  {
-    id: 't4',
-    type: 'received',
-    description: 'Community Funds deposit',
-    amount: 500,
-    date: 'Mar 15, 2026',
-    status: 'completed',
-  },
-  {
-    id: 't5',
-    type: 'donation',
-    description: 'Donation to Pan Dulce Bakery',
-    amount: -25,
-    date: 'Mar 12, 2026',
-    status: 'completed',
-  },
-  {
-    id: 't6',
-    type: 'sent',
-    description: 'Sent to @carlosmendoza',
-    amount: -75,
-    date: 'Mar 10, 2026',
-    status: 'completed',
-  },
-  {
-    id: 't7',
-    type: 'reward',
-    description: 'Early Adopter Bonus',
-    amount: 50,
-    date: 'Mar 5, 2026',
-    status: 'completed',
-  },
-  {
-    id: 't8',
-    type: 'received',
-    description: 'Cooperative dividend',
-    amount: 12.50,
-    date: 'Mar 1, 2026',
-    status: 'completed',
-  },
-];
-
 export default function Wallet() {
-  const [walletCreated, setWalletCreated] = useState(false);
+  const { user } = useAuth();
+  const {
+    isCreated, walletAddress, usdcBalance, ethBalance,
+    loading: walletLoading, creating, error,
+    createWallet, refreshBalance, formatBalance,
+  } = useWallet();
+
   const [showCreateFlow, setShowCreateFlow] = useState(false);
   const [pin, setPin] = useState(['', '', '', '', '', '']);
   const [pinStep, setPinStep] = useState<'create' | 'confirm' | 'done'>('create');
   const [firstPin, setFirstPin] = useState('');
   const [showBalance, setShowBalance] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [transactions, setTransactions] = useState<LRTransaction[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const balance = 1247.5;
-  const walletAddress = '0x7a3B...9f4E';
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onUserTransactions(user.uid, setTransactions);
+    return unsub;
+  }, [user]);
 
   const handlePinInput = (index: number, value: string) => {
     if (value.length > 1) return;
@@ -110,13 +61,11 @@ export default function Wallet() {
     newPin[index] = value;
     setPin(newPin);
 
-    // Auto-focus next input
     if (value && index < 5) {
       const next = document.getElementById(`pin-${index + 1}`);
       next?.focus();
     }
 
-    // Check if all filled
     if (newPin.every((d) => d !== '')) {
       const fullPin = newPin.join('');
       if (pinStep === 'create') {
@@ -129,15 +78,15 @@ export default function Wallet() {
       } else if (pinStep === 'confirm') {
         if (fullPin === firstPin) {
           setPinStep('done');
-          setTimeout(() => {
-            setWalletCreated(true);
-            setShowCreateFlow(false);
-            setPinStep('create');
-            setPin(['', '', '', '', '', '']);
-            setFirstPin('');
-          }, 1500);
+          createWallet(fullPin).then(() => {
+            setTimeout(() => {
+              setShowCreateFlow(false);
+              setPinStep('create');
+              setPin(['', '', '', '', '', '']);
+              setFirstPin('');
+            }, 1500);
+          });
         } else {
-          // Reset on mismatch
           setPin(['', '', '', '', '', '']);
           setTimeout(() => {
             document.getElementById('pin-0')?.focus();
@@ -155,25 +104,36 @@ export default function Wallet() {
   };
 
   const handleCopy = () => {
+    if (walletAddress) {
+      navigator.clipboard.writeText(walletAddress).catch(() => {});
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const getTypeStyles = (type: Transaction['type']) => {
-    switch (type) {
-      case 'donation':
-        return { bg: 'bg-terracotta-50', color: 'text-terracotta-600', icon: ArrowUpRight };
-      case 'sent':
-        return { bg: 'bg-gray-50', color: 'text-gray-600', icon: ArrowUpRight };
-      case 'received':
-        return { bg: 'bg-teal-50', color: 'text-teal-600', icon: ArrowDownLeft };
-      case 'reward':
-        return { bg: 'bg-gold-100', color: 'text-gold-600', icon: ArrowDownLeft };
-    }
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refreshBalance();
+    setRefreshing(false);
   };
 
-  // No wallet created yet — show CTA
-  if (!walletCreated && !showCreateFlow) {
+  const truncatedAddress = walletAddress
+    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+    : '';
+
+  const balanceNum = parseFloat(usdcBalance) || 0;
+  const ethNum = parseFloat(ethBalance) || 0;
+
+  if (walletLoading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-teal-500" />
+      </div>
+    );
+  }
+
+  // No wallet -- show CTA
+  if (!isCreated && !showCreateFlow) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="card overflow-hidden">
@@ -182,7 +142,7 @@ export default function Wallet() {
               <WalletIcon className="h-10 w-10" />
             </div>
             <h1 className="mt-6 font-display text-3xl font-bold">
-              Tu Digital Wallet
+              Tu Community Wallet
             </h1>
             <p className="mt-3 text-teal-100">
               A secure wallet to contribute to Community Funds, receive dividends,
@@ -193,18 +153,9 @@ export default function Wallet() {
           <div className="p-8">
             <div className="space-y-4">
               {[
-                {
-                  title: 'Fund Latino businesses',
-                  description: 'Donate or invest directly from your wallet',
-                },
-                {
-                  title: 'Earn rewards',
-                  description: 'Get Community Funds for referrals and engagement',
-                },
-                {
-                  title: 'Track your impact',
-                  description: 'See exactly where your dollars make a difference',
-                },
+                { title: 'Fund Latino businesses', description: 'Donate or invest directly from your wallet' },
+                { title: 'Earn rewards', description: 'Get Community Funds for referrals and engagement' },
+                { title: 'Track your impact', description: 'See exactly where your dollars make a difference' },
               ].map((item) => (
                 <div key={item.title} className="flex items-start gap-3">
                   <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-teal-50">
@@ -245,7 +196,7 @@ export default function Wallet() {
   }
 
   // PIN creation flow
-  if (showCreateFlow) {
+  if (showCreateFlow && !isCreated) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 sm:px-6">
         <div className="card p-8">
@@ -272,13 +223,23 @@ export default function Wallet() {
             )}
           </div>
 
-          {pinStep === 'done' ? (
+          {error && (
+            <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+
+          {pinStep === 'done' || creating ? (
             <div className="mt-8 text-center">
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-teal-50">
-                <Check className="h-10 w-10 text-teal-500" />
-              </div>
+              {creating ? (
+                <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-teal-500" />
+              ) : (
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-teal-50">
+                  <Check className="h-10 w-10 text-teal-500" />
+                </div>
+              )}
               <p className="mt-4 text-sm text-gray-500">
-                Your Digital Wallet is ready. Welcome to the cooperative economy!
+                {creating ? 'Creating your wallet...' : 'Your Digital Wallet is ready. Welcome to the cooperative economy!'}
               </p>
             </div>
           ) : (
@@ -289,7 +250,6 @@ export default function Wallet() {
                   : 'Enter the same PIN again to confirm.'}
               </p>
 
-              {/* PIN dots */}
               <div className="mt-8 flex justify-center gap-3">
                 {pin.map((digit, i) => (
                   <input
@@ -307,18 +267,9 @@ export default function Wallet() {
                 ))}
               </div>
 
-              {/* Step indicator */}
               <div className="mt-6 flex justify-center gap-2">
-                <div
-                  className={`h-2 w-8 rounded-full ${
-                    pinStep === 'create' ? 'bg-teal-500' : 'bg-gray-200'
-                  }`}
-                />
-                <div
-                  className={`h-2 w-8 rounded-full ${
-                    pinStep === 'confirm' ? 'bg-teal-500' : 'bg-gray-200'
-                  }`}
-                />
+                <div className={`h-2 w-8 rounded-full ${pinStep === 'create' ? 'bg-teal-500' : 'bg-gray-200'}`} />
+                <div className={`h-2 w-8 rounded-full ${pinStep === 'confirm' ? 'bg-teal-500' : 'bg-gray-200'}`} />
               </div>
             </>
           )}
@@ -341,47 +292,54 @@ export default function Wallet() {
               <div>
                 <p className="text-sm text-teal-100">Digital Wallet</p>
                 <div className="flex items-center gap-2">
-                  <p className="text-sm text-teal-200">{walletAddress}</p>
+                  <p className="text-sm text-teal-200">{truncatedAddress}</p>
                   <button
                     onClick={handleCopy}
                     className="rounded p-0.5 text-teal-200 transition-colors hover:text-white"
                   >
-                    {copied ? (
-                      <Check className="h-3.5 w-3.5" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
+                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                   </button>
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => setShowBalance(!showBalance)}
-              className="rounded-lg p-2 text-teal-200 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              {showBalance ? (
-                <Eye className="h-5 w-5" />
-              ) : (
-                <EyeOff className="h-5 w-5" />
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRefresh}
+                className={`rounded-lg p-2 text-teal-200 transition-colors hover:bg-white/10 hover:text-white ${refreshing ? 'animate-spin' : ''}`}
+              >
+                <RefreshCw className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setShowBalance(!showBalance)}
+                className="rounded-lg p-2 text-teal-200 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                {showBalance ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
 
           <div className="mt-6">
-            <p className="text-sm text-teal-200">Community Funds Balance</p>
+            <p className="text-sm text-teal-200">USDC Balance</p>
             <p className="mt-1 font-display text-4xl font-bold text-white">
-              {showBalance
-                ? `$${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                : '$****.**'}
+              {showBalance ? formatBalance(balanceNum) : '$****.**'}
+            </p>
+            <p className="mt-1 text-sm text-teal-300">
+              {showBalance ? `${ethNum.toFixed(6)} ETH` : '****** ETH'}
             </p>
           </div>
 
           {/* Action buttons */}
           <div className="mt-6 flex gap-3">
-            <button className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/20 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/30">
+            <a
+              href="https://faucet.circle.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/20 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/30"
+            >
               <Plus className="h-4 w-4" />
               Add Funds
-            </button>
+              <ExternalLink className="h-3 w-3" />
+            </a>
             <button className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/20 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/30">
               <ArrowUpRight className="h-4 w-4" />
               Send
@@ -397,7 +355,7 @@ export default function Wallet() {
           { label: 'Request Funds', icon: ArrowDownLeft, color: 'teal' },
           { label: 'View Impact', icon: History, color: 'gold' },
         ].map(({ label, icon: Icon, color }) => {
-          const colorClasses = {
+          const colorClasses: Record<string, string> = {
             terracotta: 'bg-terracotta-50 text-terracotta-600',
             teal: 'bg-teal-50 text-teal-600',
             gold: 'bg-gold-100 text-gold-600',
@@ -407,9 +365,7 @@ export default function Wallet() {
               key={label}
               className="card flex flex-col items-center gap-2 p-4 transition-all hover:shadow-md"
             >
-              <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl ${colorClasses[color as keyof typeof colorClasses]}`}
-              >
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${colorClasses[color]}`}>
                 <Icon className="h-5 w-5" />
               </div>
               <span className="text-xs font-medium text-gray-700">{label}</span>
@@ -425,44 +381,52 @@ export default function Wallet() {
             <History className="h-5 w-5 text-gray-400" />
             Transaction History
           </h2>
-          <button className="text-sm font-medium text-teal-600 hover:text-teal-700">
-            View all
-          </button>
         </div>
 
         <div className="mt-4 space-y-2">
-          {transactions.map((tx) => {
-            const styles = getTypeStyles(tx.type);
-            const Icon = styles.icon;
-            return (
-              <div
-                key={tx.id}
-                className="card flex items-center gap-4 p-4 transition-all hover:shadow-md cursor-pointer"
-              >
+          {transactions.length === 0 ? (
+            <div className="card p-8 text-center">
+              <p className="text-sm text-gray-500">No transactions yet. Fund a business to get started!</p>
+            </div>
+          ) : (
+            transactions.map((tx) => {
+              const isOutgoing = tx.type === 'donation' || tx.type === 'equity_purchase';
+              const createdAt = tx.createdAt?.toDate ? tx.createdAt.toDate() : new Date();
+              return (
                 <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl ${styles.bg}`}
+                  key={tx.id}
+                  className="card flex items-center gap-4 p-4 transition-all hover:shadow-md cursor-pointer"
                 >
-                  <Icon className={`h-5 w-5 ${styles.color}`} />
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                    isOutgoing ? 'bg-terracotta-50' : 'bg-teal-50'
+                  }`}>
+                    {isOutgoing ? (
+                      <ArrowUpRight className="h-5 w-5 text-terracotta-600" />
+                    ) : (
+                      <ArrowDownLeft className="h-5 w-5 text-teal-600" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      {tx.type === 'donation' ? 'Donation' : 'Investment'} - {tx.businessName}
+                    </p>
+                    <p className="text-xs text-gray-400">{timeAgo(createdAt)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-sm font-semibold ${isOutgoing ? 'text-gray-900' : 'text-teal-600'}`}>
+                      {isOutgoing ? '-' : '+'}${tx.amountUsdc.toFixed(2)}
+                    </p>
+                    <p className={`text-xs ${
+                      tx.status === 'completed' ? 'text-teal-500' : tx.status === 'pending' ? 'text-gold-500' : 'text-red-500'
+                    }`}>
+                      {tx.status}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-300" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900">
-                    {tx.description}
-                  </p>
-                  <p className="text-xs text-gray-400">{tx.date}</p>
-                </div>
-                <div className="text-right">
-                  <p
-                    className={`text-sm font-semibold ${
-                      tx.amount >= 0 ? 'text-teal-600' : 'text-gray-900'
-                    }`}
-                  >
-                    {tx.amount >= 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
-                  </p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-gray-300" />
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
     </div>

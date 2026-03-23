@@ -1,9 +1,185 @@
-import { useState } from 'react';
-import { Image, Send, Smile, TrendingUp, Users, Calendar } from 'lucide-react';
-import PostCard from '../components/PostCard';
+import { useState, useEffect, useRef } from 'react';
+import { Send, Smile, TrendingUp, Users, Calendar, Heart, MessageCircle, Share2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useAuth } from '../lib/AuthContext';
+import { useWallet } from '../lib/WalletContext';
 import WalletButton from '../components/WalletButton';
-import { posts } from '../data/posts';
-import { users, currentUser } from '../data/users';
+import {
+  onPosts, createPost, toggleLike, hasLiked,
+  onComments, addComment,
+  Post, Comment as FirestoreComment,
+} from '../lib/firestore';
+
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function PostCard({ post }: { post: Post }) {
+  const { user } = useAuth();
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(post.likeCount);
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState<FirestoreComment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+
+  useEffect(() => {
+    setLikeCount(post.likeCount);
+  }, [post.likeCount]);
+
+  useEffect(() => {
+    let cancelled = false;
+    hasLiked(post.id).then((result) => {
+      if (!cancelled) setLiked(result);
+    });
+    return () => { cancelled = true; };
+  }, [post.id]);
+
+  useEffect(() => {
+    if (!showComments) return;
+    const unsub = onComments(post.id, setComments);
+    return unsub;
+  }, [post.id, showComments]);
+
+  const handleLike = async () => {
+    const wasLiked = liked;
+    setLiked(!wasLiked);
+    setLikeCount((prev) => wasLiked ? prev - 1 : prev + 1);
+    try {
+      await toggleLike(post.id);
+    } catch {
+      setLiked(wasLiked);
+      setLikeCount((prev) => wasLiked ? prev + 1 : prev - 1);
+    }
+  };
+
+  const handleComment = async () => {
+    if (!commentText.trim()) return;
+    setSubmittingComment(true);
+    try {
+      await addComment(post.id, commentText.trim());
+      setCommentText('');
+    } catch (err) {
+      console.error('Failed to add comment:', err);
+    }
+    setSubmittingComment(false);
+  };
+
+  const createdAt = post.createdAt?.toDate ? post.createdAt.toDate() : new Date();
+  const avatarUrl = post.authorPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.authorName)}&background=C2652A&color=fff&size=200`;
+
+  return (
+    <article className="card overflow-hidden">
+      <div className="p-5">
+        {/* Author header */}
+        <div className="flex items-start gap-3">
+          <img
+            src={avatarUrl}
+            alt={post.authorName}
+            className="h-11 w-11 rounded-full object-cover ring-2 ring-white"
+            referrerPolicy="no-referrer"
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900">{post.authorName}</p>
+            <p className="text-xs text-gray-400">{timeAgo(createdAt)}</p>
+          </div>
+        </div>
+
+        {/* Content */}
+        <p className="mt-4 text-sm leading-relaxed text-gray-700 whitespace-pre-line">
+          {post.content}
+        </p>
+
+        {/* Media */}
+        {post.mediaUrls && post.mediaUrls.length > 0 && (
+          <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: post.mediaUrls.length === 1 ? '1fr' : '1fr 1fr' }}>
+            {post.mediaUrls.map((url, i) => (
+              <img key={i} src={url} alt="" className="w-full rounded-xl object-cover max-h-80" loading="lazy" />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-6 border-t border-gray-50 px-5 py-3">
+        <button
+          onClick={handleLike}
+          className={`flex items-center gap-1.5 text-sm transition-colors ${
+            liked ? 'text-terracotta-500' : 'text-gray-400 hover:text-terracotta-500'
+          }`}
+        >
+          <Heart className={`h-[18px] w-[18px] ${liked ? 'fill-terracotta-500' : ''}`} />
+          <span className="font-medium">{likeCount}</span>
+        </button>
+
+        <button
+          onClick={() => setShowComments(!showComments)}
+          className="flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-teal-500"
+        >
+          <MessageCircle className="h-[18px] w-[18px]" />
+          <span className="font-medium">{post.commentCount}</span>
+          {showComments ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </button>
+
+        <button className="flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-teal-500">
+          <Share2 className="h-[18px] w-[18px]" />
+        </button>
+      </div>
+
+      {/* Comments section */}
+      {showComments && (
+        <div className="border-t border-gray-100 px-5 py-4 space-y-3">
+          {comments.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-2">No comments yet. Be the first!</p>
+          )}
+          {comments.map((c) => {
+            const cAvatar = c.authorPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.authorName)}&background=0D9488&color=fff&size=100`;
+            const cTime = c.createdAt?.toDate ? c.createdAt.toDate() : new Date();
+            return (
+              <div key={c.id} className="flex gap-2">
+                <img src={cAvatar} alt="" className="h-7 w-7 rounded-full object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-900">{c.authorName}</span>
+                    <span className="text-xs text-gray-400">{timeAgo(cTime)}</span>
+                  </div>
+                  <p className="text-sm text-gray-600">{c.content}</p>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Comment input */}
+          {user && (
+            <div className="flex gap-2 pt-2">
+              <input
+                type="text"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleComment()}
+                placeholder="Write a comment..."
+                className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-teal-400"
+              />
+              <button
+                onClick={handleComment}
+                disabled={!commentText.trim() || submittingComment}
+                className="rounded-lg bg-teal-500 px-3 py-2 text-white transition-colors hover:bg-teal-600 disabled:opacity-40"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
 
 const trendingTopics = [
   { tag: '#CommunityFunding', count: 234 },
@@ -20,55 +196,53 @@ const upcomingEvents = [
 ];
 
 export default function Feed() {
+  const { user } = useAuth();
+  const { usdcBalance } = useWallet();
   const [newPost, setNewPost] = useState('');
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [posting, setPosting] = useState(false);
 
-  const handlePost = () => {
-    if (newPost.trim()) {
+  useEffect(() => {
+    const unsub = onPosts(setPosts);
+    return unsub;
+  }, []);
+
+  const handlePost = async () => {
+    if (!newPost.trim()) return;
+    setPosting(true);
+    try {
+      await createPost({ content: newPost.trim() });
       setNewPost('');
-      // Mock — in production this would submit to backend
+    } catch (err) {
+      console.error('Failed to create post:', err);
     }
+    setPosting(false);
   };
+
+  const avatarUrl = user?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.displayName || user?.email || '?')}&background=C2652A&color=fff&size=200`;
+  const balanceNum = parseFloat(usdcBalance) || 0;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        {/* Left sidebar — profile card */}
+        {/* Left sidebar -- profile card */}
         <aside className="hidden lg:col-span-3 lg:block">
           <div className="card overflow-hidden">
-            {/* Banner */}
             <div className="h-20 bg-gradient-to-r from-terracotta-400 via-terracotta-500 to-teal-500" />
             <div className="px-5 pb-5">
               <img
-                src={currentUser.avatar}
-                alt={currentUser.name}
+                src={avatarUrl}
+                alt={user?.displayName || 'User'}
                 className="-mt-8 h-16 w-16 rounded-full border-4 border-white object-cover"
+                referrerPolicy="no-referrer"
               />
-              <h3 className="mt-2 font-semibold text-gray-900">{currentUser.name}</h3>
-              <p className="text-xs text-gray-500">{currentUser.handle}</p>
-              <p className="mt-2 text-xs leading-relaxed text-gray-500">
-                {currentUser.bio}
-              </p>
-
-              <div className="mt-4 grid grid-cols-3 gap-2 border-t border-gray-100 pt-4">
-                <div className="text-center">
-                  <p className="text-sm font-bold text-gray-900">{currentUser.posts}</p>
-                  <p className="text-xs text-gray-400">Posts</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-bold text-gray-900">{currentUser.connections}</p>
-                  <p className="text-xs text-gray-400">Conexiones</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-bold text-teal-600">{currentUser.impactScore}</p>
-                  <p className="text-xs text-gray-400">Impact</p>
-                </div>
-              </div>
+              <h3 className="mt-2 font-semibold text-gray-900">{user?.displayName || 'Anonymous'}</h3>
+              <p className="text-xs text-gray-500">{user?.email}</p>
             </div>
           </div>
 
-          {/* Wallet preview */}
           <div className="mt-4">
-            <WalletButton balance={1247.50} />
+            <WalletButton balance={balanceNum} />
           </div>
         </aside>
 
@@ -78,9 +252,10 @@ export default function Feed() {
           <div className="card p-5">
             <div className="flex gap-3">
               <img
-                src={currentUser.avatar}
+                src={avatarUrl}
                 alt=""
                 className="h-10 w-10 rounded-full object-cover"
+                referrerPolicy="no-referrer"
               />
               <div className="flex-1">
                 <textarea
@@ -93,19 +268,16 @@ export default function Feed() {
                 <div className="mt-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <button className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-50 hover:text-terracotta-500">
-                      <Image className="h-5 w-5" />
-                    </button>
-                    <button className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-50 hover:text-terracotta-500">
                       <Smile className="h-5 w-5" />
                     </button>
                   </div>
                   <button
                     onClick={handlePost}
-                    disabled={!newPost.trim()}
+                    disabled={!newPost.trim() || posting}
                     className="btn-primary py-2 text-sm disabled:opacity-40"
                   >
                     <Send className="h-4 w-4" />
-                    Publicar
+                    {posting ? 'Publicando...' : 'Publicar'}
                   </button>
                 </div>
               </div>
@@ -114,9 +286,14 @@ export default function Feed() {
 
           {/* Posts */}
           <div className="mt-6 space-y-6">
-            {posts.map((post) => (
-              <PostCard key={post.id} post={post} />
-            ))}
+            {posts.length === 0 ? (
+              <div className="card p-12 text-center">
+                <p className="text-lg font-medium text-gray-900">Be the first to share something with la comunidad!</p>
+                <p className="mt-2 text-sm text-gray-500">Write a post above to get the conversation started.</p>
+              </div>
+            ) : (
+              posts.map((post) => <PostCard key={post.id} post={post} />)
+            )}
           </div>
         </main>
 
@@ -130,10 +307,7 @@ export default function Feed() {
             </div>
             <div className="mt-4 space-y-3">
               {trendingTopics.map((topic) => (
-                <div
-                  key={topic.tag}
-                  className="flex items-center justify-between"
-                >
+                <div key={topic.tag} className="flex items-center justify-between">
                   <span className="text-sm font-medium text-teal-600 hover:text-teal-700 cursor-pointer">
                     {topic.tag}
                   </span>
@@ -160,31 +334,6 @@ export default function Feed() {
                       {event.attendees}
                     </span>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Suggested connections */}
-          <div className="card mt-4 p-5">
-            <p className="text-sm font-semibold text-gray-900">Personas que conocer</p>
-            <div className="mt-4 space-y-4">
-              {users.slice(1, 4).map((user) => (
-                <div key={user.id} className="flex items-center gap-3">
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="h-9 w-9 rounded-full object-cover"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-900">
-                      {user.name}
-                    </p>
-                    <p className="truncate text-xs text-gray-400">{user.skills[0]}</p>
-                  </div>
-                  <button className="rounded-lg bg-terracotta-50 px-3 py-1 text-xs font-medium text-terracotta-600 transition-colors hover:bg-terracotta-100">
-                    Conectar
-                  </button>
                 </div>
               ))}
             </div>

@@ -1,9 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  MapPin,
-  Calendar,
-  Globe,
   ArrowLeft,
   Heart,
   Share2,
@@ -13,21 +10,78 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Calendar,
+  Info,
+  Sparkles,
 } from 'lucide-react';
-import { businesses } from '../data/businesses';
+import { useAuth } from '../lib/AuthContext';
+import { getBusiness, createTransaction, Business } from '../lib/firestore';
 import FundingProgress from '../components/FundingProgress';
 
 type Tab = 'about' | 'founders' | 'updates';
 
 export default function BusinessProfile() {
   const { id } = useParams();
-  const business = businesses.find((b) => b.id === id);
-
+  const { user } = useAuth();
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('about');
   const [currentImage, setCurrentImage] = useState(0);
   const [showDonateModal, setShowDonateModal] = useState(false);
   const [donateAmount, setDonateAmount] = useState('');
   const [donateSuccess, setDonateSuccess] = useState(false);
+  const [donating, setDonating] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      const biz = await getBusiness(id);
+      if (!cancelled) {
+        setBusiness(biz);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  const handleDonate = async () => {
+    if (!donateAmount || parseFloat(donateAmount) <= 0 || !user || !business) return;
+    setDonating(true);
+    try {
+      await createTransaction({
+        backerId: user.uid,
+        backerName: user.displayName || 'Anonymous',
+        recipientId: business.founderId,
+        businessId: business.id,
+        businessName: business.name,
+        amountUsdc: parseFloat(donateAmount),
+        type: 'donation',
+      });
+      setDonateSuccess(true);
+      // Refresh business data
+      const updated = await getBusiness(business.id);
+      if (updated) setBusiness(updated);
+      setTimeout(() => {
+        setShowDonateModal(false);
+        setDonateSuccess(false);
+        setDonateAmount('');
+      }, 2000);
+    } catch (err) {
+      console.error('Donation failed:', err);
+    }
+    setDonating(false);
+  };
+
+  const quickAmounts = [10, 25, 50, 100, 250];
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-terracotta-500" />
+      </div>
+    );
+  }
 
   if (!business) {
     return (
@@ -41,18 +95,7 @@ export default function BusinessProfile() {
     );
   }
 
-  const handleDonate = () => {
-    if (donateAmount && parseFloat(donateAmount) > 0) {
-      setDonateSuccess(true);
-      setTimeout(() => {
-        setShowDonateModal(false);
-        setDonateSuccess(false);
-        setDonateAmount('');
-      }, 2000);
-    }
-  };
-
-  const quickAmounts = [10, 25, 50, 100, 250];
+  const gallery = business.galleryUrls?.length ? business.galleryUrls : [business.logoUrl];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -65,47 +108,48 @@ export default function BusinessProfile() {
         Back to Marketplace
       </Link>
 
+      {/* Template banner */}
+      {business.isTemplate && (
+        <div className="mb-6 flex items-center gap-3 rounded-xl bg-gold-100 p-4 text-gold-700">
+          <Sparkles className="h-5 w-5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold">This is a template business</p>
+            <p className="text-xs">Want to see your business here? <Link to="/create-business" className="underline font-medium">Register yours now!</Link></p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         {/* Main content */}
         <div className="lg:col-span-2">
           {/* Gallery */}
           <div className="relative overflow-hidden rounded-2xl">
             <img
-              src={business.gallery[currentImage]}
+              src={gallery[currentImage]}
               alt={business.name}
               className="aspect-video w-full object-cover"
             />
-            {business.gallery.length > 1 && (
+            {gallery.length > 1 && (
               <>
                 <button
-                  onClick={() =>
-                    setCurrentImage((prev) =>
-                      prev === 0 ? business.gallery.length - 1 : prev - 1
-                    )
-                  }
+                  onClick={() => setCurrentImage((prev) => prev === 0 ? gallery.length - 1 : prev - 1)}
                   className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
                 >
                   <ChevronLeft className="h-5 w-5" />
                 </button>
                 <button
-                  onClick={() =>
-                    setCurrentImage((prev) =>
-                      prev === business.gallery.length - 1 ? 0 : prev + 1
-                    )
-                  }
+                  onClick={() => setCurrentImage((prev) => prev === gallery.length - 1 ? 0 : prev + 1)}
                   className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
                 >
                   <ChevronRight className="h-5 w-5" />
                 </button>
                 <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-                  {business.gallery.map((_, i) => (
+                  {gallery.map((_, i) => (
                     <button
                       key={i}
                       onClick={() => setCurrentImage(i)}
                       className={`h-2 rounded-full transition-all ${
-                        i === currentImage
-                          ? 'w-6 bg-white'
-                          : 'w-2 bg-white/50 hover:bg-white/70'
+                        i === currentImage ? 'w-6 bg-white' : 'w-2 bg-white/50 hover:bg-white/70'
                       }`}
                     />
                   ))}
@@ -117,16 +161,18 @@ export default function BusinessProfile() {
           {/* Title & meta */}
           <div className="mt-6">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
+                <img
+                  src={business.logoUrl}
+                  alt={business.name}
+                  className="h-14 w-14 rounded-xl object-cover"
+                />
+                <div>
                   <h1 className="font-display text-3xl font-bold text-gray-900">
                     {business.name}
                   </h1>
-                  {business.featured && (
-                    <span className="badge bg-gold-100 text-gold-700">Destacado</span>
-                  )}
+                  <p className="mt-1 text-lg text-gray-500">{business.tagline}</p>
                 </div>
-                <p className="mt-1 text-lg text-gray-500">{business.tagline}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-50 hover:text-terracotta-500">
@@ -138,41 +184,15 @@ export default function BusinessProfile() {
               </div>
             </div>
 
-            {/* Meta info */}
             <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-500">
               <span className="flex items-center gap-1.5">
-                <MapPin className="h-4 w-4" />
-                {business.location}
+                <Info className="h-4 w-4" />
+                {business.category}
               </span>
               <span className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4" />
-                Founded {business.foundedYear}
+                <Users className="h-4 w-4" />
+                Founded by {business.founderName}
               </span>
-              {business.website && (
-                <span className="flex items-center gap-1.5">
-                  <Globe className="h-4 w-4" />
-                  <a
-                    href={`https://${business.website}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-teal-600 hover:text-teal-700"
-                  >
-                    {business.website}
-                  </a>
-                </span>
-              )}
-            </div>
-
-            {/* Tags */}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {business.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="badge bg-gray-50 text-gray-600 ring-1 ring-gray-200"
-                >
-                  {tag}
-                </span>
-              ))}
             </div>
           </div>
 
@@ -202,27 +222,33 @@ export default function BusinessProfile() {
                 <p className="text-sm leading-relaxed text-gray-600 whitespace-pre-line">
                   {business.description}
                 </p>
+                <div className="mt-6 grid grid-cols-2 gap-4">
+                  <div className="rounded-xl bg-teal-50 p-4 text-center">
+                    <p className="text-2xl font-bold text-teal-600">{business.equityPoolPercent}%</p>
+                    <p className="text-xs text-teal-600/70">Equity Pool</p>
+                  </div>
+                  <div className="rounded-xl bg-terracotta-50 p-4 text-center">
+                    <p className="text-2xl font-bold text-terracotta-600">{business.backerCount}</p>
+                    <p className="text-xs text-terracotta-600/70">Community Backers</p>
+                  </div>
+                </div>
               </div>
             )}
 
             {activeTab === 'founders' && (
-              <div className="space-y-6">
-                {business.founders.map((founder) => (
-                  <div key={founder.name} className="card flex gap-5 p-5">
-                    <img
-                      src={founder.avatar}
-                      alt={founder.name}
-                      className="h-16 w-16 rounded-xl object-cover"
-                    />
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{founder.name}</h3>
-                      <p className="text-sm text-terracotta-500">{founder.role}</p>
-                      <p className="mt-2 text-sm leading-relaxed text-gray-500">
-                        {founder.bio}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+              <div className="card flex gap-5 p-5">
+                <img
+                  src={business.logoUrl}
+                  alt={business.founderName}
+                  className="h-16 w-16 rounded-xl object-cover"
+                />
+                <div>
+                  <h3 className="font-semibold text-gray-900">{business.founderName}</h3>
+                  <p className="text-sm text-terracotta-500">Founder</p>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                    Passionate about building {business.name} and making a difference in the Latino community.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -231,7 +257,7 @@ export default function BusinessProfile() {
                 <div className="card p-5">
                   <div className="flex items-center gap-2 text-xs text-gray-400">
                     <Calendar className="h-3.5 w-3.5" />
-                    2 days ago
+                    Recently
                   </div>
                   <p className="mt-2 text-sm text-gray-700">
                     Exciting news! We just reached a major milestone. Thank you to everyone
@@ -241,7 +267,7 @@ export default function BusinessProfile() {
                 <div className="card p-5">
                   <div className="flex items-center gap-2 text-xs text-gray-400">
                     <Calendar className="h-3.5 w-3.5" />
-                    1 week ago
+                    Earlier
                   </div>
                   <p className="mt-2 text-sm text-gray-700">
                     We are thrilled to announce that we have been featured on Lumina Red's
@@ -253,7 +279,7 @@ export default function BusinessProfile() {
           </div>
         </div>
 
-        {/* Sidebar — funding */}
+        {/* Sidebar -- funding */}
         <aside className="lg:col-span-1">
           <div className="card sticky top-24 p-6">
             <h2 className="font-display text-lg font-semibold text-gray-900">
@@ -262,9 +288,9 @@ export default function BusinessProfile() {
 
             <div className="mt-4">
               <FundingProgress
-                raised={business.fundingRaised}
-                goal={business.fundingGoal}
-                backers={business.backers}
+                raised={business.amountRaisedUsdc}
+                goal={business.fundingGoalUsdc}
+                backers={business.backerCount}
               />
             </div>
 
@@ -275,11 +301,11 @@ export default function BusinessProfile() {
                 className="btn-teal w-full py-3.5"
               >
                 <DollarSign className="h-4 w-4" />
-                Donate
+                Donar
               </button>
               <button className="btn-secondary w-full py-3.5">
                 <TrendingUp className="h-4 w-4" />
-                Invest
+                Invertir
               </button>
             </div>
 
@@ -287,10 +313,10 @@ export default function BusinessProfile() {
             <div className="mt-6 border-t border-gray-100 pt-6">
               <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
                 <Users className="h-4 w-4 text-gray-400" />
-                Recent backers
+                {business.backerCount} backers
               </div>
               <div className="mt-3 flex -space-x-2">
-                {['Ana+C', 'Luis+M', 'Diego+R', 'Maria+L', 'Sofia+R'].map(
+                {['Ana+C', 'Luis+M', 'Diego+R', 'Maria+L', 'Sofia+R'].slice(0, Math.min(5, business.backerCount)).map(
                   (name, i) => (
                     <img
                       key={i}
@@ -302,9 +328,11 @@ export default function BusinessProfile() {
                     />
                   )
                 )}
-                <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-gray-100 text-xs font-medium text-gray-500">
-                  +{business.backers - 5}
-                </div>
+                {business.backerCount > 5 && (
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-gray-100 text-xs font-medium text-gray-500">
+                    +{business.backerCount - 5}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -324,7 +352,7 @@ export default function BusinessProfile() {
                   Gracias!
                 </h3>
                 <p className="mt-2 text-sm text-gray-500">
-                  Your contribution of ${donateAmount} has been received.
+                  Your contribution of ${donateAmount} USDC has been recorded.
                   You're helping build something amazing.
                 </p>
               </div>
@@ -332,7 +360,7 @@ export default function BusinessProfile() {
               <>
                 <div className="flex items-center justify-between">
                   <h3 className="font-display text-lg font-semibold text-gray-900">
-                    Donate to {business.name}
+                    Donar a {business.name}
                   </h3>
                   <button
                     onClick={() => setShowDonateModal(false)}
@@ -366,7 +394,7 @@ export default function BusinessProfile() {
                 {/* Custom amount */}
                 <div className="mt-4">
                   <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                    Custom Amount
+                    Custom Amount (USDC)
                   </label>
                   <div className="relative">
                     <DollarSign className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -383,10 +411,10 @@ export default function BusinessProfile() {
 
                 <button
                   onClick={handleDonate}
-                  disabled={!donateAmount || parseFloat(donateAmount) <= 0}
+                  disabled={!donateAmount || parseFloat(donateAmount) <= 0 || donating}
                   className="btn-teal mt-5 w-full py-3.5 disabled:opacity-40"
                 >
-                  Confirm Donation
+                  {donating ? 'Processing...' : 'Confirm Donation'}
                 </button>
               </>
             )}

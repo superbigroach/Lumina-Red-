@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -9,9 +10,11 @@ import {
   Globe,
   Sparkles,
   Heart,
+  MapPin,
+  ArrowUpRight,
 } from 'lucide-react';
-import { businesses } from '../data/businesses';
-import BusinessCard from '../components/BusinessCard';
+import { onBusinesses, Business } from '../lib/firestore';
+import FundingProgress from '../components/FundingProgress';
 
 const stats = [
   { value: '2,400+', label: 'Miembros' },
@@ -67,20 +70,73 @@ const values = [
   },
 ];
 
+function FeaturedBusinessCard({ business }: { business: Business }) {
+  const coverImage = business.galleryUrls?.[0] || business.logoUrl;
+
+  return (
+    <Link
+      to={`/business/${business.id}`}
+      className="card group flex flex-col overflow-hidden"
+    >
+      <div className="relative aspect-[16/10] overflow-hidden">
+        <img
+          src={coverImage}
+          alt={business.name}
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          loading="lazy"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+        <span className="absolute left-3 top-3 badge bg-white/90 text-gray-700 shadow-sm backdrop-blur-sm">
+          {business.category}
+        </span>
+        {business.isTemplate && (
+          <span className="absolute right-3 top-3 badge bg-gold-400 text-white shadow-sm">
+            Destacado
+          </span>
+        )}
+        <div className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-hover:opacity-100">
+          <ArrowUpRight className="h-4 w-4 text-gray-700" />
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-5">
+        <h3 className="font-display text-lg font-semibold text-gray-900 group-hover:text-terracotta-500 transition-colors">
+          {business.name}
+        </h3>
+        <p className="mt-1 text-sm text-gray-500">{business.tagline}</p>
+
+        <div className="mt-auto pt-4">
+          <FundingProgress
+            raised={business.amountRaisedUsdc}
+            goal={business.fundingGoalUsdc}
+            backers={business.backerCount}
+            compact
+          />
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export default function Landing() {
-  const featuredBusinesses = businesses.filter((b) => b.featured);
+  const [featuredBusinesses, setFeaturedBusinesses] = useState<Business[]>([]);
+
+  useEffect(() => {
+    const unsub = onBusinesses((businesses) => {
+      setFeaturedBusinesses(businesses.slice(0, 3));
+    });
+    return unsub;
+  }, []);
 
   return (
     <div>
       {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-br from-warm-100 via-white to-terracotta-50">
-        {/* Decorative background elements */}
         <div className="absolute -right-20 -top-20 h-96 w-96 rounded-full bg-terracotta-100/40 blur-3xl" />
         <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-teal-100/30 blur-3xl" />
 
         <div className="relative mx-auto max-w-7xl px-4 pb-20 pt-16 sm:px-6 sm:pb-28 sm:pt-24 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
-            {/* Badge */}
             <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-terracotta-50 px-4 py-1.5 text-sm font-medium text-terracotta-600 ring-1 ring-terracotta-200">
               <Sparkles className="h-4 w-4" />
               Cooperativa Digital para la Comunidad Latina
@@ -100,7 +156,6 @@ export default function Landing() {
               networking meets community investment.
             </p>
 
-            {/* CTAs */}
             <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
               <Link to="/auth" className="btn-primary px-8 py-4 text-base">
                 Unete a la Red
@@ -112,7 +167,6 @@ export default function Landing() {
             </div>
           </div>
 
-          {/* Stats */}
           <div className="mx-auto mt-16 grid max-w-2xl grid-cols-2 gap-6 sm:grid-cols-4 sm:gap-8">
             {stats.map((stat) => (
               <div key={stat.label} className="text-center">
@@ -140,24 +194,12 @@ export default function Landing() {
 
           <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-3">
             {features.map((feature) => {
-              const colorMap = {
-                terracotta: {
-                  bg: 'bg-terracotta-50',
-                  icon: 'bg-terracotta-500',
-                  text: 'text-terracotta-600',
-                },
-                teal: {
-                  bg: 'bg-teal-50',
-                  icon: 'bg-teal-500',
-                  text: 'text-teal-600',
-                },
-                gold: {
-                  bg: 'bg-gold-100',
-                  icon: 'bg-gold-400',
-                  text: 'text-gold-600',
-                },
+              const colorMap: Record<string, { bg: string; icon: string; text: string }> = {
+                terracotta: { bg: 'bg-terracotta-50', icon: 'bg-terracotta-500', text: 'text-terracotta-600' },
+                teal: { bg: 'bg-teal-50', icon: 'bg-teal-500', text: 'text-teal-600' },
+                gold: { bg: 'bg-gold-100', icon: 'bg-gold-400', text: 'text-gold-600' },
               };
-              const colors = colorMap[feature.color as keyof typeof colorMap];
+              const colors = colorMap[feature.color];
               const Icon = feature.icon;
 
               return (
@@ -165,9 +207,7 @@ export default function Landing() {
                   key={feature.title}
                   className={`rounded-2xl ${colors.bg} p-8 transition-transform hover:-translate-y-1`}
                 >
-                  <div
-                    className={`inline-flex h-12 w-12 items-center justify-center rounded-xl ${colors.icon} shadow-lg`}
-                  >
+                  <div className={`inline-flex h-12 w-12 items-center justify-center rounded-xl ${colors.icon} shadow-lg`}>
                     <Icon className="h-6 w-6 text-white" />
                   </div>
                   <h3 className="mt-5 font-display text-xl font-semibold text-gray-900">
@@ -203,9 +243,23 @@ export default function Landing() {
           </div>
 
           <div className="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredBusinesses.map((business) => (
-              <BusinessCard key={business.id} business={business} />
-            ))}
+            {featuredBusinesses.length > 0 ? (
+              featuredBusinesses.map((business) => (
+                <FeaturedBusinessCard key={business.id} business={business} />
+              ))
+            ) : (
+              // Placeholder cards while loading
+              [1, 2, 3].map((i) => (
+                <div key={i} className="card overflow-hidden animate-pulse">
+                  <div className="aspect-[16/10] bg-gray-200" />
+                  <div className="p-5 space-y-3">
+                    <div className="h-5 w-2/3 rounded bg-gray-200" />
+                    <div className="h-4 w-full rounded bg-gray-100" />
+                    <div className="h-2.5 w-full rounded-full bg-gray-100" />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="mt-8 text-center sm:hidden">
