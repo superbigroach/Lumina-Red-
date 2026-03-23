@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@500;600;700;800&display=swap');
+
+@layer base {
+  body {
+    @apply bg-warm-50 text-gray-900 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::selection {
+    @apply bg-terracotta-200 text-terracotta-900;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-terracotta-500 px-6 py-3 text-sm font-semibold text-white shadow-md shadow-terracotta-500/25 transition-all hover:bg-terracotta-600 hover:shadow-lg hover:shadow-terracotta-500/30 active:scale-[0.97];
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border-2 border-terracotta-500 px-6 py-3 text-sm font-semibold text-terracotta-500 transition-all hover:bg-terracotta-50 active:scale-[0.97];
+  }
+
+  .btn-teal {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-teal-500 px-6 py-3 text-sm font-semibold text-white shadow-md shadow-teal-500/25 transition-all hover:bg-teal-600 hover:shadow-lg hover:shadow-teal-500/30 active:scale-[0.97];
+  }
+
+  .card {
+    @apply rounded-2xl bg-white shadow-sm ring-1 ring-gray-900/5 transition-shadow hover:shadow-md;
+  }
+
+  .input-field {
+    @apply w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 transition-colors focus:border-terracotta-400 focus:outline-none focus:ring-2 focus:ring-terracotta-500/20;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-medium;
+  }
+
+  .section-heading {
+    @apply font-display text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .gradient-terracotta {
+    @apply bg-gradient-to-br from-terracotta-500 to-terracotta-700;
+  }
+
+  .gradient-teal {
+    @apply bg-gradient-to-br from-teal-500 to-teal-700;
+  }
+
+  .gradient-warm {
+    @apply bg-gradient-to-br from-terracotta-500 via-gold-400 to-teal-500;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-gray-300;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
