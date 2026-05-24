@@ -7,10 +7,12 @@ import {
   Store,
   FileText,
   DollarSign,
+  MapPin,
   Loader2,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { createBusiness } from '../lib/firestore';
+import ImageUpload from '../components/ImageUpload';
 
 const categoryOptions = [
   'Food & Restaurant',
@@ -37,17 +39,21 @@ export default function CreateBusiness() {
 
   // Step 2
   const [description, setDescription] = useState('');
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState('');
   const [galleryUrl1, setGalleryUrl1] = useState('');
   const [galleryUrl2, setGalleryUrl2] = useState('');
   const [galleryUrl3, setGalleryUrl3] = useState('');
 
   // Step 3
   const [fundingGoal, setFundingGoal] = useState('');
-  const [equityPool, setEquityPool] = useState('');
+  const [location, setLocation] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [website, setWebsite] = useState('');
 
   const canProceedStep1 = name.trim() && tagline.trim() && category;
   const canProceedStep2 = description.trim();
-  const canSubmit = fundingGoal && parseFloat(fundingGoal) > 0 && equityPool && parseFloat(equityPool) >= 0;
+  const canSubmit = fundingGoal && parseFloat(fundingGoal) > 0;
 
   const handleSubmit = async () => {
     if (!user) return;
@@ -66,9 +72,14 @@ export default function CreateBusiness() {
         description: description.trim(),
         category,
         logoUrl,
+        coverPhotoUrl: coverPhotoUrl.trim() || (galleryUrls[0] || logoUrl),
         galleryUrls: galleryUrls.length > 0 ? galleryUrls : [logoUrl],
+        location: location.trim(),
+        contactEmail: contactEmail.trim(),
+        contactPhone: contactPhone.trim(),
+        website: website.trim(),
         fundingGoalUsdc: parseFloat(fundingGoal),
-        equityPoolPercent: parseFloat(equityPool),
+        memberIds: [],
         status: 'active',
         isTemplate: false,
       });
@@ -80,9 +91,9 @@ export default function CreateBusiness() {
   };
 
   const steps = [
-    { num: 1, label: 'Basics', icon: Store },
-    { num: 2, label: 'Details', icon: FileText },
-    { num: 3, label: 'Funding', icon: DollarSign },
+    { num: 1, label: 'Tu Negocio', icon: Store },
+    { num: 2, label: 'Historia', icon: FileText },
+    { num: 3, label: 'Detalles', icon: MapPin },
   ];
 
   return (
@@ -93,7 +104,16 @@ export default function CreateBusiness() {
           Registrar Mi Negocio
         </h1>
         <p className="mt-2 text-gray-500">
-          Share your business with la comunidad and start receiving community funding.
+          Share your business with la comunidad and start receiving community support.
+        </p>
+      </div>
+
+      {/* Mission banner */}
+      <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-6 py-4">
+        <p className="text-sm leading-relaxed text-amber-900">
+          <span className="font-semibold">Lumina Red</span> is a community platform where members
+          support Latino-owned businesses, cooperatives, and causes through direct donations.
+          Every dollar goes directly to the founder.
         </p>
       </div>
 
@@ -138,7 +158,7 @@ export default function CreateBusiness() {
           </div>
         )}
 
-        {/* Step 1: Basics */}
+        {/* Step 1: Tu Negocio */}
         {step === 1 && (
           <div className="space-y-5">
             <div>
@@ -197,7 +217,7 @@ export default function CreateBusiness() {
           </div>
         )}
 
-        {/* Step 2: Details */}
+        {/* Step 2: Historia */}
         {step === 2 && (
           <div className="space-y-5">
             <div>
@@ -210,6 +230,15 @@ export default function CreateBusiness() {
                 placeholder="Tell the community about your business, mission, and what makes it special..."
                 className="input-field"
                 rows={6}
+              />
+            </div>
+
+            <div>
+              <ImageUpload
+                value={coverPhotoUrl}
+                onChange={setCoverPhotoUrl}
+                uploadPath={`businesses/${user?.uid}/cover`}
+                label="Foto de portada (opcional)"
               />
             </div>
 
@@ -265,7 +294,7 @@ export default function CreateBusiness() {
           </div>
         )}
 
-        {/* Step 3: Funding */}
+        {/* Step 3: Detalles Finales */}
         {step === 3 && (
           <div className="space-y-5">
             <div>
@@ -290,22 +319,54 @@ export default function CreateBusiness() {
 
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                Community Equity Pool (%) *
+                Location (optional)
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={equityPool}
-                  onChange={(e) => setEquityPool(e.target.value)}
-                  placeholder="e.g. 15"
-                  className="input-field"
-                  min="0"
-                  max="50"
-                />
-              </div>
-              <p className="mt-1 text-xs text-gray-400">
-                The percentage of equity shared with community backers (0-50%)
-              </p>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Toronto, Canada"
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                Contact Email (optional)
+              </label>
+              <input
+                type="email"
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+                placeholder="hello@yourbusiness.com"
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                Contact Phone (optional)
+              </label>
+              <input
+                type="tel"
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                placeholder="+1 (416) 555-0100"
+                className="input-field"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                Website (optional)
+              </label>
+              <input
+                type="url"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="https://yourbusiness.com"
+                className="input-field"
+              />
             </div>
 
             {/* Preview */}
@@ -326,12 +387,12 @@ export default function CreateBusiness() {
                     {fundingGoal ? `$${parseFloat(fundingGoal).toLocaleString()} USDC` : '...'}
                   </span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Equity Pool</span>
-                  <span className="font-medium text-terracotta-600">
-                    {equityPool ? `${equityPool}%` : '...'}
-                  </span>
-                </div>
+                {location && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Location</span>
+                    <span className="font-medium text-gray-900">{location}</span>
+                  </div>
+                )}
               </div>
             </div>
 

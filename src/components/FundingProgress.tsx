@@ -43,7 +43,7 @@ export default function FundingProgress({
           </span>
         </div>
         <div className={`text-gray-500 ${compact ? 'text-xs' : 'text-sm'}`}>
-          <span className="font-medium text-gray-700">{backers}</span> backers
+          <span className="font-medium text-gray-700">{backers}</span> supporters
         </div>
       </div>
 
@@ -51,10 +51,10 @@ export default function FundingProgress({
       {!compact && (
         <div className="flex items-center gap-2">
           <span className="badge bg-teal-50 text-teal-700">
-            {percentage.toFixed(0)}% funded
+            {percentage.toFixed(0)}% de la meta
           </span>
           {percentage >= 80 && (
-            <span className="badge bg-gold-100 text-gold-700">Almost there!</span>
+            <span className="badge bg-gold-100 text-gold-700">¡Casi llegamos!</span>
           )}
         </div>
       )}

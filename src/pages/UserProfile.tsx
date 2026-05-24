@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   MapPin,
   Edit3,
   Save,
   X,
-  TrendingUp,
   Users,
   Newspaper,
   Linkedin,
@@ -12,15 +11,26 @@ import {
   MessageCircle,
   UserPlus,
   Check,
+  Award,
+  Phone,
+  Mail,
+  Send as SendIcon,
+  Eye,
+  EyeOff,
+  Globe,
+  Lock,
+  Camera,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import {
   getUserProfile, updateUserProfile, createUserProfile,
   onPosts, onFriendships, onPendingRequests, acceptFriendRequest,
-  onUserTransactions,
+  onUserTransactions, onUserBadges, uploadImage,
   UserProfile as UserProfileType,
-  Post, Friendship, LRTransaction,
+  Post, Friendship, LRTransaction, DonationBadge,
 } from '../lib/firestore';
+import { BadgeGrid } from '../components/ContributionBadge';
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -33,7 +43,7 @@ function timeAgo(date: Date): string {
   return `${days}d ago`;
 }
 
-type Tab = 'posts' | 'connections' | 'portfolio';
+type Tab = 'posts' | 'connections' | 'badges';
 
 export default function UserProfile() {
   const { user } = useAuth();
@@ -49,6 +59,22 @@ export default function UserProfile() {
   const [socialLinkedin, setSocialLinkedin] = useState('');
   const [socialInstagram, setSocialInstagram] = useState('');
   const [socialX, setSocialX] = useState('');
+  const [phone, setPhone] = useState('');
+  const [telegram, setTelegram] = useState('');
+  const [displayEmail, setDisplayEmail] = useState('');
+  const [website, setWebsite] = useState('');
+  const [socialVisibility, setSocialVisibility] = useState<{
+    email?: boolean;
+    phone?: boolean;
+    linkedin?: boolean;
+    instagram?: boolean;
+    x?: boolean;
+    telegram?: boolean;
+    website?: boolean;
+  }>({});
+  const [bannerUrl, setBannerUrl] = useState('');
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const bannerFileRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
 
   // Data
@@ -56,6 +82,7 @@ export default function UserProfile() {
   const [friends, setFriends] = useState<Friendship[]>([]);
   const [pendingRequests, setPendingRequests] = useState<Friendship[]>([]);
   const [transactions, setTransactions] = useState<LRTransaction[]>([]);
+  const [badges, setBadges] = useState<DonationBadge[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -78,6 +105,12 @@ export default function UserProfile() {
         setSocialLinkedin(p.socialLinks?.linkedin || '');
         setSocialInstagram(p.socialLinks?.instagram || '');
         setSocialX(p.socialLinks?.x || '');
+        setPhone((p as any).phone || '');
+        setTelegram((p as any).telegram || p.socialLinks?.telegram || '');
+        setDisplayEmail((p as any).displayEmail || '');
+        setWebsite((p as any).website || '');
+        setSocialVisibility((p as any).socialVisibility || {});
+        setBannerUrl((p as any).bannerUrl || '');
       }
       if (!cancelled) setLoading(false);
     })();
@@ -86,6 +119,7 @@ export default function UserProfile() {
 
   useEffect(() => {
     if (!user) return;
+    const unsubBadges = onUserBadges(user.uid, setBadges);
     const unsubs = [
       onPosts((allPosts) => {
         setPosts(allPosts.filter((p) => p.authorId === user.uid));
@@ -94,8 +128,26 @@ export default function UserProfile() {
       onPendingRequests(user.uid, setPendingRequests),
       onUserTransactions(user.uid, setTransactions),
     ];
-    return () => unsubs.forEach((u) => u());
+    return () => {
+      unsubBadges();
+      unsubs.forEach((u) => u());
+    };
   }, [user]);
+
+  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    e.target.value = '';
+    setUploadingBanner(true);
+    try {
+      const url = await uploadImage(file, `avatars/${user.uid}/banner`);
+      setBannerUrl(url);
+      await updateUserProfile(user.uid, { bannerUrl: url } as any);
+    } catch (err) {
+      console.error('Banner upload failed:', err);
+    }
+    setUploadingBanner(false);
+  };
 
   const handleSave = async () => {
     if (!user) return;
@@ -105,16 +157,35 @@ export default function UserProfile() {
         bio,
         countryOrigin,
         currentCity,
+        phone,
+        telegram,
+        displayEmail,
+        website,
+        socialVisibility,
         socialLinks: {
-          linkedin: socialLinkedin || undefined,
-          instagram: socialInstagram || undefined,
-          x: socialX || undefined,
+          linkedin: socialLinkedin || '',
+          instagram: socialInstagram || '',
+          x: socialX || '',
+          telegram: telegram || '',
         },
       } as any);
       setProfile((prev) => prev ? {
-        ...prev, bio, countryOrigin, currentCity,
-        socialLinks: { linkedin: socialLinkedin, instagram: socialInstagram, x: socialX },
-      } : prev);
+        ...prev,
+        bio,
+        countryOrigin,
+        currentCity,
+        phone,
+        telegram,
+        displayEmail,
+        website,
+        socialVisibility,
+        socialLinks: {
+          linkedin: socialLinkedin,
+          instagram: socialInstagram,
+          x: socialX,
+          telegram,
+        },
+      } as any : prev);
       setEditing(false);
     } catch (err) {
       console.error('Failed to save profile:', err);
@@ -130,6 +201,11 @@ export default function UserProfile() {
       setSocialLinkedin(profile.socialLinks?.linkedin || '');
       setSocialInstagram(profile.socialLinks?.instagram || '');
       setSocialX(profile.socialLinks?.x || '');
+      setPhone((profile as any).phone || '');
+      setTelegram((profile as any).telegram || profile.socialLinks?.telegram || '');
+      setDisplayEmail((profile as any).displayEmail || '');
+      setWebsite((profile as any).website || '');
+      setSocialVisibility((profile as any).socialVisibility || {});
     }
     setEditing(false);
   };
@@ -142,15 +218,22 @@ export default function UserProfile() {
     }
   };
 
+  const toggleVisibility = (field: keyof typeof socialVisibility) => {
+    setSocialVisibility((prev) => ({ ...prev, [field]: prev[field] === false ? true : false }));
+  };
+
   const totalDonated = transactions.reduce((sum, tx) => sum + tx.amountUsdc, 0);
   const uniqueBusinesses = new Set(transactions.map((tx) => tx.businessId)).size;
 
   const avatarUrl = user?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.displayName || user?.email || '?')}&background=C2652A&color=fff&size=200`;
 
+  const myPostCount = posts.filter((p) => p.authorId === user?.uid).length;
+  const donationCount = (profile as any)?.donationCount ?? transactions.length;
+
   const tabs = [
-    { key: 'posts' as const, label: 'Mis Posts', icon: Newspaper, count: posts.length },
+    { key: 'posts' as const, label: 'Mis Posts', icon: Newspaper, count: myPostCount },
     { key: 'connections' as const, label: 'Conexiones', icon: Users, count: friends.length },
-    { key: 'portfolio' as const, label: 'Impact & Portfolio', icon: TrendingUp, count: transactions.length },
+    { key: 'badges' as const, label: 'Insignias', icon: Award, count: badges.length },
   ];
 
   if (loading) {
@@ -195,9 +278,30 @@ export default function UserProfile() {
 
       {/* Profile header */}
       <div className="card overflow-hidden">
-        <div className="h-32 bg-gradient-to-r from-terracotta-400 via-terracotta-500 to-teal-500 sm:h-40" />
+        {/* Banner — click camera to upload */}
+        <div className="relative h-36 sm:h-44 group">
+          <div
+            className="h-full w-full"
+            style={bannerUrl
+              ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+              : { background: 'linear-gradient(135deg, #7B2D1A 0%, #C2652A 38%, #D4845A 52%, #0D9488 78%, #064E3B 100%)' }
+            }
+          />
+          <button
+            onClick={() => bannerFileRef.current?.click()}
+            disabled={uploadingBanner}
+            className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-lg bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur-sm transition-colors hover:bg-black/70 disabled:opacity-60"
+          >
+            {uploadingBanner
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Camera className="h-3.5 w-3.5" />
+            }
+            {uploadingBanner ? 'Subiendo...' : 'Cambiar banner'}
+          </button>
+          <input ref={bannerFileRef} type="file" accept="image/*" className="hidden" onChange={handleBannerUpload} />
+        </div>
 
-        <div className="px-6 pb-6">
+        <div className="relative z-10 px-6 pb-6">
           <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:gap-6">
             <img
               src={avatarUrl}
@@ -220,6 +324,22 @@ export default function UserProfile() {
                 Edit Profile
               </button>
             )}
+          </div>
+
+          {/* Stats bar */}
+          <div className="mt-5 flex gap-4">
+            <div className="text-center">
+              <p className="text-xl font-bold text-gray-900">{myPostCount}</p>
+              <p className="text-xs text-gray-500">Posts</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xl font-bold text-gray-900">{friends.length}</p>
+              <p className="text-xs text-gray-500">Conexiones</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xl font-bold text-teal-600">{donationCount}</p>
+              <p className="text-xs text-gray-500">Donaciones</p>
+            </div>
           </div>
 
           {/* Bio & editable fields */}
@@ -258,19 +378,38 @@ export default function UserProfile() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+
+                {/* Social links with visibility toggles */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {/* LinkedIn */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-500">LinkedIn</label>
-                    <input
-                      type="text"
-                      value={socialLinkedin}
-                      onChange={(e) => setSocialLinkedin(e.target.value)}
-                      className="input-field"
-                      placeholder="linkedin.com/in/..."
-                    />
+                    <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+                      <Linkedin className="h-3.5 w-3.5" /> LinkedIn
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={socialLinkedin}
+                        onChange={(e) => setSocialLinkedin(e.target.value)}
+                        className="input-field flex-1"
+                        placeholder="linkedin.com/in/..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleVisibility('linkedin')}
+                        className="rounded-lg border border-gray-200 px-2 text-gray-400 hover:text-gray-600 transition-colors"
+                        title={socialVisibility.linkedin === false ? 'Oculto — clic para mostrar' : 'Visible — clic para ocultar'}
+                      >
+                        {socialVisibility.linkedin === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Instagram */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-500">Instagram</label>
+                    <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+                      <Instagram className="h-3.5 w-3.5" /> Instagram
+                    </label>
                     <input
                       type="text"
                       value={socialInstagram}
@@ -279,17 +418,128 @@ export default function UserProfile() {
                       placeholder="@handle"
                     />
                   </div>
+
+                  {/* X (Twitter) */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-500">X (Twitter)</label>
-                    <input
-                      type="text"
-                      value={socialX}
-                      onChange={(e) => setSocialX(e.target.value)}
-                      className="input-field"
-                      placeholder="@handle"
-                    />
+                    <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+                      X (Twitter)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={socialX}
+                        onChange={(e) => setSocialX(e.target.value)}
+                        className="input-field flex-1"
+                        placeholder="@handle"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleVisibility('x')}
+                        className="rounded-lg border border-gray-200 px-2 text-gray-400 hover:text-gray-600 transition-colors"
+                        title={socialVisibility.x === false ? 'Oculto — clic para mostrar' : 'Visible — clic para ocultar'}
+                      >
+                        {socialVisibility.x === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Phone */}
+                  <div>
+                    <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+                      <Phone className="h-3.5 w-3.5" /> Teléfono
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="input-field flex-1"
+                        placeholder="+1 555 000 0000"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleVisibility('phone')}
+                        className="rounded-lg border border-gray-200 px-2 text-gray-400 hover:text-gray-600 transition-colors"
+                        title={socialVisibility.phone === false ? 'Oculto — clic para mostrar' : 'Visible — clic para ocultar'}
+                      >
+                        {socialVisibility.phone === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Telegram */}
+                  <div>
+                    <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+                      <SendIcon className="h-3.5 w-3.5" /> Telegram
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={telegram}
+                        onChange={(e) => setTelegram(e.target.value)}
+                        className="input-field flex-1"
+                        placeholder="@handle"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleVisibility('telegram')}
+                        className="rounded-lg border border-gray-200 px-2 text-gray-400 hover:text-gray-600 transition-colors"
+                        title={socialVisibility.telegram === false ? 'Oculto — clic para mostrar' : 'Visible — clic para ocultar'}
+                      >
+                        {socialVisibility.telegram === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Display email */}
+                  <div>
+                    <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+                      <Mail className="h-3.5 w-3.5" /> Email de contacto
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={displayEmail}
+                        onChange={(e) => setDisplayEmail(e.target.value)}
+                        className="input-field flex-1"
+                        placeholder="email@ejemplo.com"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleVisibility('email')}
+                        className="rounded-lg border border-gray-200 px-2 text-gray-400 hover:text-gray-600 transition-colors"
+                        title={socialVisibility.email === false ? 'Oculto — clic para mostrar' : 'Visible — clic para ocultar'}
+                      >
+                        {socialVisibility.email === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Website */}
+                  <div>
+                    <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+                      <Globe className="h-3.5 w-3.5" /> Sitio web
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={website}
+                        onChange={(e) => setWebsite(e.target.value)}
+                        className="input-field flex-1"
+                        placeholder="tusitio.com"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleVisibility('website')}
+                        className="rounded-lg border border-gray-200 px-2 text-gray-400 hover:text-gray-600 transition-colors"
+                        title={socialVisibility.website === false ? 'Oculto — clic para mostrar' : 'Visible — clic para ocultar'}
+                      >
+                        {socialVisibility.website === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
+
                 <div className="flex gap-2">
                   <button onClick={handleSave} disabled={saving} className="btn-primary py-2 text-sm">
                     <Save className="h-4 w-4" />
@@ -321,33 +571,89 @@ export default function UserProfile() {
                   )}
                 </div>
 
-                <div className="mt-3 flex gap-3">
-                  {profile?.socialLinks?.linkedin && (
-                    <a
-                      href={profile.socialLinks.linkedin.startsWith('http') ? profile.socialLinks.linkedin : `https://${profile.socialLinks.linkedin}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-700"
-                    >
-                      <Linkedin className="h-5 w-5" />
-                    </a>
-                  )}
-                  {profile?.socialLinks?.instagram && (
-                    <a
-                      href={`https://instagram.com/${profile.socialLinks.instagram.replace('@', '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-50 hover:text-pink-500"
-                    >
-                      <Instagram className="h-5 w-5" />
-                    </a>
-                  )}
-                </div>
+                {/* Contact links — always visible to self, lock = hidden from others */}
+                {(() => {
+                  const sv = (profile as any)?.socialVisibility || {};
+                  const profilePhone = (profile as any)?.phone;
+                  const profileTelegram = (profile as any)?.telegram || profile?.socialLinks?.telegram;
+                  const profileDisplayEmail = (profile as any)?.displayEmail;
+                  const profileWebsite = (profile as any)?.website;
+                  const linkedinRaw = profile?.socialLinks?.linkedin || '';
+                  const xRaw = profile?.socialLinks?.x || '';
+                  const igRaw = profile?.socialLinks?.instagram || '';
+
+                  const items = [
+                    profileDisplayEmail && sv.email !== false && {
+                      href: `mailto:${profileDisplayEmail}`,
+                      icon: <Mail className="h-3.5 w-3.5" />,
+                      label: profileDisplayEmail,
+                      external: false,
+                    },
+                    profilePhone && sv.phone !== false && {
+                      href: `tel:${profilePhone}`,
+                      icon: <Phone className="h-3.5 w-3.5" />,
+                      label: profilePhone,
+                      external: false,
+                    },
+                    linkedinRaw && sv.linkedin !== false && {
+                      href: linkedinRaw.startsWith('http') ? linkedinRaw : `https://${linkedinRaw}`,
+                      icon: <Linkedin className="h-3.5 w-3.5" />,
+                      label: 'LinkedIn',
+                      external: true,
+                    },
+                    xRaw && sv.x !== false && {
+                      href: xRaw.startsWith('http') ? xRaw : `https://x.com/${xRaw.replace('@', '')}`,
+                      icon: <span className="font-bold text-[11px]">𝕏</span>,
+                      label: xRaw.startsWith('http') ? xRaw.split('/').pop() || 'X' : xRaw,
+                      external: true,
+                    },
+                    profileTelegram && sv.telegram !== false && {
+                      href: profileTelegram.startsWith('http') ? profileTelegram : `https://t.me/${profileTelegram.replace('@', '')}`,
+                      icon: <SendIcon className="h-3.5 w-3.5" />,
+                      label: profileTelegram,
+                      external: true,
+                    },
+                    igRaw && sv.instagram !== false && {
+                      href: `https://instagram.com/${igRaw.replace('@', '')}`,
+                      icon: <Instagram className="h-3.5 w-3.5" />,
+                      label: igRaw,
+                      external: true,
+                    },
+                    profileWebsite && sv.website !== false && {
+                      href: profileWebsite.startsWith('http') ? profileWebsite : `https://${profileWebsite}`,
+                      icon: <Globe className="h-3.5 w-3.5" />,
+                      label: profileWebsite.replace(/^https?:\/\//, ''),
+                      external: true,
+                    },
+                  ].filter(Boolean) as { href: string; icon: React.ReactNode; label: string; external: boolean }[];
+
+                  if (!items.length) return null;
+                  return (
+                    <div className="mt-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Contacto</p>
+                      <div className="flex flex-wrap gap-2">
+                        {items.map((item, i) => (
+                          <a
+                            key={i}
+                            href={item.href}
+                            target={item.external ? '_blank' : undefined}
+                            rel={item.external ? 'noopener noreferrer' : undefined}
+                            className="flex items-center gap-1.5 rounded-lg bg-gray-50 px-3 py-1.5 text-xs text-gray-700 transition-colors hover:bg-gray-100"
+                          >
+                            {item.icon}
+                            <span>{item.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
               </>
             )}
           </div>
 
-          {/* Stats row */}
+          {/* Impact stats row */}
           <div className="mt-6 grid grid-cols-3 gap-4 border-t border-gray-100 pt-6">
             <div className="text-center">
               <p className="text-xl font-bold text-gray-900">{posts.length}</p>
@@ -406,9 +712,16 @@ export default function UserProfile() {
                       </div>
                     </div>
                     <p className="mt-3 text-sm leading-relaxed text-gray-700 whitespace-pre-line">{post.content}</p>
+                    {post.mediaUrls && post.mediaUrls.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {post.mediaUrls.map((url, i) => (
+                          <img key={i} src={url} alt="" className="w-full rounded-xl object-cover max-h-80" loading="lazy" />
+                        ))}
+                      </div>
+                    )}
                     <div className="mt-3 flex items-center gap-4 text-xs text-gray-400">
                       <span>{post.likeCount} likes</span>
-                      <span>{post.commentCount} comments</span>
+                      <span>{post.commentCount} comentarios</span>
                     </div>
                   </article>
                 );
@@ -449,7 +762,7 @@ export default function UserProfile() {
           </div>
         )}
 
-        {activeTab === 'portfolio' && (
+        {activeTab === 'badges' && (
           <div className="space-y-6">
             {/* Impact summary */}
             <div className="card p-6">
@@ -472,35 +785,12 @@ export default function UserProfile() {
               </div>
             </div>
 
-            {/* Transaction list */}
+            {/* Badges */}
             <div>
-              <h3 className="font-display text-lg font-semibold text-gray-900">
-                Historial de contribuciones
+              <h3 className="font-display text-lg font-semibold text-gray-900 mb-4">
+                Insignias Ganadas
               </h3>
-              <div className="mt-4 space-y-3">
-                {transactions.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-gray-500">No contributions yet. Visit the Marketplace to support a business!</p>
-                ) : (
-                  transactions.map((tx) => {
-                    const createdAt = tx.createdAt?.toDate ? tx.createdAt.toDate() : new Date();
-                    return (
-                      <div key={tx.id} className="card flex items-center gap-4 p-4">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-terracotta-50">
-                          <TrendingUp className="h-5 w-5 text-terracotta-600" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-gray-900">{tx.businessName}</p>
-                          <p className="text-xs text-gray-400">{tx.type} - {timeAgo(createdAt)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold text-teal-600">${tx.amountUsdc.toFixed(2)}</p>
-                          <p className="text-xs text-gray-400">{tx.status}</p>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+              <BadgeGrid badges={badges} />
             </div>
           </div>
         )}

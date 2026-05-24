@@ -11,8 +11,10 @@ import {
   Flame,
   LogOut,
   MessageCircle,
+  Bell,
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
+import { useNotifications } from '../lib/NotificationContext';
 
 const navLinks = [
   { to: '/', label: 'Inicio', icon: Home },
@@ -27,6 +29,7 @@ export default function Navbar() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, signOut } = useAuth();
+  const { totalUnread } = useNotifications();
 
   const handleSignOut = async () => {
     await signOut();
@@ -73,6 +76,19 @@ export default function Navbar() {
           <div className="hidden items-center gap-3 md:flex">
             {user ? (
               <div className="flex items-center gap-3">
+                {/* Notification bell */}
+                <Link
+                  to="/notifications"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                  title="Notificaciones"
+                >
+                  <Bell className="h-5 w-5" />
+                  {totalUnread > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-terracotta-500 text-[10px] font-bold text-white">
+                      {totalUnread > 9 ? '9+' : totalUnread}
+                    </span>
+                  )}
+                </Link>
                 <Link to="/profile" className="flex items-center gap-2">
                   {user.photoURL ? (
                     <img

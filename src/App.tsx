@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { WalletProvider } from './lib/WalletContext';
+import { NotificationProvider } from './lib/NotificationContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Landing from './pages/Landing';
@@ -10,10 +11,13 @@ import Feed from './pages/Feed';
 import Marketplace from './pages/Marketplace';
 import BusinessProfile from './pages/BusinessProfile';
 import UserProfile from './pages/UserProfile';
+import PublicProfile from './pages/PublicProfile';
 import Wallet from './pages/Wallet';
 
 const Messages = lazy(() => import('./pages/Messages'));
 const CreateBusiness = lazy(() => import('./pages/CreateBusiness'));
+const EditBusiness = lazy(() => import('./pages/EditBusiness'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 
 function LazyLoadSpinner() {
   return (
@@ -89,9 +93,12 @@ function AppRoutes() {
           <Route path="/marketplace" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
           <Route path="/business/:id" element={<ProtectedRoute><BusinessProfile /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+          <Route path="/profile/:uid" element={<ProtectedRoute><PublicProfile /></ProtectedRoute>} />
           <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><Suspense fallback={<LazyLoadSpinner />}><Messages /></Suspense></ProtectedRoute>} />
           <Route path="/create-business" element={<ProtectedRoute><Suspense fallback={<LazyLoadSpinner />}><CreateBusiness /></Suspense></ProtectedRoute>} />
+          <Route path="/edit-business/:id" element={<ProtectedRoute><Suspense fallback={<LazyLoadSpinner />}><EditBusiness /></Suspense></ProtectedRoute>} />
+          <Route path="/notifications" element={<ProtectedRoute><Suspense fallback={<LazyLoadSpinner />}><NotificationsPage /></Suspense></ProtectedRoute>} />
         </Routes>
       </main>
       <Footer />
@@ -104,7 +111,9 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <WalletProvider>
-          <AppRoutes />
+          <NotificationProvider>
+            <AppRoutes />
+          </NotificationProvider>
         </WalletProvider>
       </AuthProvider>
     </BrowserRouter>
